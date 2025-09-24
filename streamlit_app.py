@@ -19,6 +19,41 @@ DEFAULT_EMA_OPTIONS = [5, 10, 20, 50, 100, 150, 200]
 DEFAULT_EMA_SELECTION = [20, 50, 200]
 
 
+def parse_odbc_connection_string(conn_str: str) -> Dict[str, str]:
+    """Parse an ODBC connection string into pymssql keyword arguments."""
+    parsed: Dict[str, str] = {}
+    if not conn_str:
+        return parsed
+
+    for chunk in conn_str.strip().strip(";").split(";"):
+        if not chunk or "=" not in chunk:
+            continue
+        key, value = chunk.split("=", 1)
+        key = key.strip().upper()
+        value = value.strip().strip("'\"")
+        if value.startswith("{") and value.endswith("}"):
+            value = value[1:-1]
+
+        if key == "SERVER":
+            server_value = value
+            if server_value.lower().startswith("tcp:"):
+                server_value = server_value[4:]
+            host, _, port_part = server_value.partition(",")
+            parsed["server"] = host
+            if port_part:
+                parsed["port"] = port_part
+        elif key in {"UID", "USER", "USERNAME"}:
+            parsed["user"] = value
+        elif key in {"PWD", "PASSWORD"}:
+            parsed["password"] = value
+        elif key in {"DATABASE", "DB", "INITIAL CATALOG"}:
+            parsed["database"] = value
+        elif key == "PORT":
+            parsed["port"] = value
+
+    return parsed
+
+
 def load_db_params() -> Dict[str, str]:
     """Load database parameters from Streamlit secrets or environment variables."""
     params = {
@@ -32,9 +67,32 @@ def load_db_params() -> Dict[str, str]:
         secrets_container = st.secrets.get("database", st.secrets)
     except Exception:  # Secrets are optional during local development
         secrets_container = {}
+
     for key in params:
         if key in secrets_container and secrets_container.get(key):
             params[key] = str(secrets_container.get(key))
+
+    connection_string_keys = (
+        "TARGET_DB_CONNECTION_STRING",
+        "DB_CONNECTION_STRING",
+        "DATABASE_CONNECTION_STRING",
+    )
+
+    raw_conn_str = ""
+    for key in connection_string_keys:
+        if key in secrets_container and secrets_container.get(key):
+            raw_conn_str = str(secrets_container.get(key))
+            break
+    if not raw_conn_str:
+        for key in connection_string_keys:
+            env_value = os.getenv(key, "")
+            if env_value:
+                raw_conn_str = env_value
+                break
+
+    if raw_conn_str:
+        params.update(parse_odbc_connection_string(raw_conn_str))
+
     return params
 
 
