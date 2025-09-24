@@ -260,16 +260,16 @@ def build_ema_timeseries_chart(ema_timeseries: pd.DataFrame) -> go.Figure | None
     fig = px.line(
         plot_df,
         x="TRADE_DATE",
-        y="under",
+        y="above",
         color="EMA Period",
         labels={
             "TRADE_DATE": "Trade Date",
-            "under": "Stocks Under EMA",
+            "above": "Stocks Above EMA",
             "EMA Period": "EMA",
         },
     )
     fig.update_layout(
-        title="Daily Count of Stocks Under EMA",
+        title="Daily Count of Stocks Above EMA",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(t=60, b=0, l=0, r=0),
     )
