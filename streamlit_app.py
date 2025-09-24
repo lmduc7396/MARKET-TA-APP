@@ -191,7 +191,9 @@ def enrich_with_indicators(
 
     ema_periods = sorted({int(period) for period in ema_periods})
     df = price_df.copy()
-    df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE"])
+    df["TICKER"] = df["TICKER"].str.strip().str.upper()
+    df = df[df["TICKER"].str.fullmatch(r"[A-Z]{3}")]
+    df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE"]).dt.normalize()
     df.sort_values(["TICKER", "TRADE_DATE"], inplace=True)
     df = df.drop_duplicates(subset=["TICKER", "TRADE_DATE"], keep="last")
 
@@ -440,6 +442,13 @@ def main() -> None:
 
     if price_df.empty:
         st.info("No market price data returned for the selected window.")
+        st.stop()
+
+    price_df["TICKER"] = price_df["TICKER"].str.strip().str.upper()
+    price_df = price_df[price_df["TICKER"].str.fullmatch(r"[A-Z]{3}")]
+
+    if price_df.empty:
+        st.info("No 3-letter stock tickers found for the selected window.")
         st.stop()
 
     ema_periods = sorted({int(period) for period in ema_selection})
