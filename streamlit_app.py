@@ -176,7 +176,7 @@ def enrich_with_indicators(
         column_name = f"EMA_{period}"
         df[column_name] = df.groupby("TICKER", group_keys=False)["PX_LAST"].transform(
             lambda series, span=period: series.ewm(
-                span=span, adjust=False, min_periods=span
+                span=span, adjust=False, min_periods=1
             ).mean()
         )
 
@@ -359,7 +359,9 @@ def main() -> None:
     params = load_db_params()
 
     today = date.today()
-    default_start = today - timedelta(days=180)
+    default_start = date(2024, 12, 31)
+    if default_start > today:
+        default_start = today - timedelta(days=365)
 
     with st.sidebar:
         st.header("Analysis Settings")
