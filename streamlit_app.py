@@ -141,15 +141,38 @@ def load_price_data_cached(
 
 
 def calculate_rsi(prices: pd.Series, window: int) -> pd.Series:
-    """Calculate the smoothed RSI for a price series."""
+    """Calculate RSI using Wilder's smoothing method."""
+    if len(prices) <= window:
+        return pd.Series(np.nan, index=prices.index, dtype=float)
+
     delta = prices.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    return rsi.clip(lower=0, upper=100)
+    gain = delta.clip(lower=0).fillna(0.0).to_numpy(dtype=float)
+    loss = (-delta.clip(upper=0)).fillna(0.0).to_numpy(dtype=float)
+
+    rsi_values = np.full(prices.shape, np.nan, dtype=float)
+
+    # Initial average gain/loss based on the first `window` periods
+    initial_slice = slice(1, window + 1)
+    avg_gain = gain[initial_slice].mean()
+    avg_loss = loss[initial_slice].mean()
+
+    if avg_loss == 0:
+        rsi_values[window] = 100.0
+    else:
+        rs = avg_gain / avg_loss
+        rsi_values[window] = 100 - (100 / (1 + rs))
+
+    for idx in range(window + 1, len(prices)):
+        avg_gain = ((avg_gain * (window - 1)) + gain[idx]) / window
+        avg_loss = ((avg_loss * (window - 1)) + loss[idx]) / window
+
+        if avg_loss == 0:
+            rsi_values[idx] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi_values[idx] = 100 - (100 / (1 + rs))
+
+    return pd.Series(rsi_values, index=prices.index, dtype=float)
 
 
 def enrich_with_indicators(
