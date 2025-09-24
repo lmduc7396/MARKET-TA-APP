@@ -193,6 +193,7 @@ def enrich_with_indicators(
     df = price_df.copy()
     df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE"])
     df.sort_values(["TICKER", "TRADE_DATE"], inplace=True)
+    df = df.drop_duplicates(subset=["TICKER", "TRADE_DATE"], keep="last")
 
     # Exponential moving averages per ticker
     for period in ema_periods:
@@ -336,43 +337,36 @@ def build_rsi_timeseries_chart(rsi_timeseries: pd.DataFrame) -> go.Figure | None
     return fig
 
 
-def build_latest_snapshot(
-    latest: pd.DataFrame, ema_periods: Iterable[int], rsi_period: int
-) -> pd.DataFrame:
-    """Prepare a tidy snapshot table of the latest indicators per ticker."""
+def build_rsi_leaderboards(
+    latest: pd.DataFrame, rsi_period: int
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return top/bottom 10 tickers by latest RSI readings."""
     if latest.empty:
-        return latest
+        empty = pd.DataFrame(columns=["Ticker", "RSI", "Close", "Trade Date"])
+        return empty, empty
 
-    ema_periods = sorted({int(period) for period in ema_periods})
     rsi_column = f"RSI_{rsi_period}"
+    leaderboard_cols = ["TICKER", "TRADE_DATE", "PX_LAST", rsi_column]
+    snapshot = latest[leaderboard_cols].dropna(subset=[rsi_column]).copy()
+    if snapshot.empty:
+        empty = pd.DataFrame(columns=["Ticker", "RSI", "Close", "Trade Date"])
+        return empty, empty
 
-    snapshot_cols = ["TICKER", "TRADE_DATE", "PX_LAST", rsi_column]
-    snapshot_cols.extend(f"EMA_{period}" for period in ema_periods)
-    snapshot = latest[snapshot_cols].copy()
-    snapshot["TRADE_DATE"] = snapshot["TRADE_DATE"].dt.date
+    snapshot.rename(
+        columns={
+            "TICKER": "Ticker",
+            "TRADE_DATE": "Trade Date",
+            "PX_LAST": "Close",
+            rsi_column: "RSI",
+        },
+        inplace=True,
+    )
+    snapshot["Trade Date"] = snapshot["Trade Date"].dt.date
 
-    for period in ema_periods:
-        ema_col = f"EMA_{period}"
-        snapshot[f"Under EMA {period}"] = np.where(
-            snapshot[["PX_LAST", ema_col]].notna().all(axis=1)
-            & (snapshot["PX_LAST"] < snapshot[ema_col]),
-            "Yes",
-            "No",
-        )
+    top = snapshot.sort_values("RSI", ascending=False).head(10).reset_index(drop=True)
+    bottom = snapshot.sort_values("RSI", ascending=True).head(10).reset_index(drop=True)
 
-    rename_map = {
-        "TICKER": "Ticker",
-        "TRADE_DATE": "Trade Date",
-        "PX_LAST": "Close",
-        rsi_column: f"RSI ({rsi_period})",
-    }
-    for period in ema_periods:
-        rename_map[f"EMA_{period}"] = f"EMA {period}"
-
-    snapshot.rename(columns=rename_map, inplace=True)
-    snapshot.sort_values("Ticker", inplace=True)
-    snapshot.set_index("Ticker", inplace=True)
-    return snapshot
+    return top, bottom
 
 
 def main() -> None:
@@ -462,8 +456,8 @@ def main() -> None:
 
     ema_chart = build_ema_timeseries_chart(ema_timeseries)
     rsi_chart = build_rsi_timeseries_chart(rsi_timeseries)
-    snapshot_table = build_latest_snapshot(
-        latest_snapshot_raw, ema_periods, int(rsi_period_value)
+    top_rsi, bottom_rsi = build_rsi_leaderboards(
+        latest_snapshot_raw, int(rsi_period_value)
     )
 
     st.subheader("EMA Breadth (Daily)")
@@ -520,11 +514,26 @@ def main() -> None:
         )
         st.dataframe(rsi_summary.set_index("Metric"), use_container_width=True)
 
-    st.subheader("Latest Indicator Snapshot")
-    if not snapshot_table.empty:
-        st.dataframe(snapshot_table, use_container_width=True)
+    with st.expander("RSI time-series detail"):
+        if not rsi_timeseries.empty:
+            st.dataframe(
+                rsi_timeseries.sort_values("TRADE_DATE", ascending=False),
+                use_container_width=True,
+            )
+        else:
+            st.write("No RSI time-series data available for the selected window.")
+
+    st.subheader("Top RSI Readings")
+    if not top_rsi.empty:
+        st.dataframe(top_rsi, use_container_width=True)
     else:
-        st.write("Snapshot unavailable.")
+        st.write("No RSI data available for the selected window.")
+
+    st.subheader("Lowest RSI Readings")
+    if not bottom_rsi.empty:
+        st.dataframe(bottom_rsi, use_container_width=True)
+    else:
+        st.write("No RSI data available for the selected window.")
 
     st.caption(
         "Data source: Market_Data table (close price only). Refresh the page after the daily update to pick up new data."
